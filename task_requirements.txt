@@ -1,0 +1,11 @@
+- basic usage with query and api_key
+- dynamic schema - literal interpratation of the task "bonus point would be for the solution to return a dynamic schema. That is,
+the getSchema function returns the schema of the flattened dictionary."
+- i should have asked for clarification over this, since dynamic schema in this interpratation would be just the keys
+- incremental load - TODO 
+- 11. Is there an API call limit?
+    Yes, there are two rate limits per API: 500 requests per day and 5 requests per minute. You should sleep 12 seconds between calls
+    to avoid hitting the per minute rate limit. If you need a higher rate limit, 
+    so per day max 5000 articles can be loaded
+    imo rather sleep after 5 reuqests for 1 minutes, since the rate limit is 5 requests per minute,
+    we might want to load less than 50 articles
