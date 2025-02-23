@@ -30,12 +30,25 @@ class NYTimesSource:
             "q": config.get("query", None),
             "api-key": config.get("api_key", None),
             "page": config.get("page", 0),
+            "sort": config.get("sort", "newest"),
         }
+        self.force_newest = False
+        self.inc_column = None
+        self.max_inc_value = None
 
     def connect(self, inc_column=None, max_inc_value=None):
         """Connect to the source"""
         log.debug("Incremental Column: %r", inc_column)
         log.debug("Incremental Last Value: %r", max_inc_value)
+        if inc_column and inc_column not in self.getIncrementalColumns():
+            raise ValueError("Incremental loading is only supported on the pub_date column.")
+        else:
+            self.inc_column = inc_column
+            self.max_inc_value = max_inc_value
+            self.force_newest = True
+
+    def getIncrementalColumns(self):
+        return ["pub_date"]
 
     def disconnect(self):
         """Disconnect from the source."""
@@ -49,6 +62,8 @@ class NYTimesSource:
         list of
         dictionaries with the defined rows.
         """
+        if self.force_newest:
+            self.payload["sort"] = "newest"
 
         articles = []
         for article in self.getArticles(batch_size):
@@ -60,12 +75,6 @@ class NYTimesSource:
         # can omit this
         if articles:
             yield articles
-        # yield [
-        #     {
-        #         "headline.main": "The main headline",
-        #         "_id": "1234",
-        #     }
-        # ]
 
     def getArticles(self, batch_size):
         total_articles = batch_size
@@ -73,14 +82,19 @@ class NYTimesSource:
             response = requests.get(url=BASE_URL, params=self.payload)
             match response.status_code:
                 case 200:
-                    for article in response.json()["response"]["docs"]:
+                    docs = response.json()["response"]["docs"]
+                    if not docs:
+                        break
+                    for article in docs:
+                        if self.max_inc_value and article[self.inc_column] <= self.max_inc_value:
+                            return
                         yield article
                         total_articles -= 1
                 case 401:
-                    raise Exception("Unauthorized request.  Make sure api-key is set.")
+                    raise Exception("Unauthorized request. Make sure api-key is set.")
                 case 429:
                     raise Exception(
-                        "Too many requests.  You reached your per minute or per day rate limit."
+                        "Too many requests. You reached your per minute or per day rate limit."
                     )
                 case _:
                     raise Exception(f"Unknown error: {response.status_code}")
@@ -95,31 +109,33 @@ class NYTimesSource:
         retrieved from the
         source
         """
-        schema = [
-            "title",
-            "body",
-            "created_at",
-            "id",
-            "summary",
-            "abstract",
-            "keywords",
-        ]
-        return schema
+        if not hasattr(self, "_schema"):
+            for article in self.getArticles(1):
+                flattened = flatten_dict(article)
+                self._schema = list(flattened.keys())
+                break
+        return self._schema
 
 
 if __name__ == "__main__":
     load_dotenv()
+    #
     config = {
         "api_key": os.getenv("NYTIMES_API_KEY"),
         "query": "Silicon Valley",
-        "page": 20,
+        # "page": 20,
+        "sort": "newest",
     }
     pprint(config)
     source = NYTimesSource(config)
+    source.connect(inc_column="pub_date", max_inc_value="2025-02-18T14:00:00Z")
     # This looks like an argparse dependency - but theNamespace class is just
     # a simple way to create an object holding attributes.
     # source.args = argparse.Namespace(**config)
-    for idx, batch in enumerate(source.getDataBatch(15)):
+    for idx, batch in enumerate(source.getDataBatch(10)):
         print(f"{idx} Batch of {len(batch)} items")
         for item in batch:
             print(f" - {item['_id']} - {item['headline.main']}")
+            for key, value in item.items():
+                if "date" in key:
+                    print(f" - {key} - {value}")
