@@ -15,6 +15,7 @@ January 2024
 log = logging.getLogger(__name__)
 BASE_URL = "https://api.nytimes.com/svc/search/v2/articlesearch.json"
 MAX_ARTICLES_PER_REQUEST = 10
+MAX_TOTAL_ARTICLES = 1000  # NY Times API limit (100 pages * 10 articles)
 
 
 class NYTimesSource:
@@ -35,6 +36,20 @@ class NYTimesSource:
         self.force_newest = False
         self.inc_column = None
         self.max_inc_value = None
+
+    def _check_total_hits(self):
+        """Check total number of articles matching the query and warn if exceeding API limits."""
+        response = requests.get(url=BASE_URL, params=self.payload)
+        if response.status_code == 200:
+            total_hits = response.json()["response"].get("meta", {}).get("hits", 0)
+            if total_hits > MAX_TOTAL_ARTICLES:
+                log.warning(
+                    f"Search returned {total_hits:,} articles, but only {MAX_TOTAL_ARTICLES:,} can be retrieved "
+                    "due to API limitations. Consider using date filters (begin_date, end_date) "
+                    "to narrow down your search."
+                )
+            return total_hits
+        return None
 
     def connect(self, inc_column=None, max_inc_value=None):
         """Connect to the source"""
@@ -66,30 +81,39 @@ class NYTimesSource:
             self.payload["sort"] = "newest"
 
         articles = []
-        for article in self.getArticles(batch_size):
+        for article in self.getArticles():
             articles.append(flatten_dict(article))
             if len(articles) >= batch_size:
                 yield articles
                 articles = []
 
-        # can omit this
-        if articles:
+        if articles:  # Yield any remaining articles in the last batch
             yield articles
 
-    def getArticles(self, batch_size):
-        total_articles = batch_size
-        while total_articles > 0:
+    def getArticles(self):
+        """
+        Generator that yields articles from the NY Times API.
+        Handles pagination and respects API limits.
+        """
+        while True:
+            if self.payload["page"] >= 100:
+                return
+                
             response = requests.get(url=BASE_URL, params=self.payload)
             match response.status_code:
                 case 200:
                     docs = response.json()["response"]["docs"]
                     if not docs:
-                        break
+                        return
+                    
                     for article in docs:
                         if self.max_inc_value and article[self.inc_column] <= self.max_inc_value:
                             return
                         yield article
-                        total_articles -= 1
+
+                    if len(docs) < MAX_ARTICLES_PER_REQUEST:
+                        return
+                        
                 case 401:
                     raise Exception("Unauthorized request. Make sure api-key is set.")
                 case 429:
@@ -98,9 +122,9 @@ class NYTimesSource:
                     )
                 case _:
                     raise Exception(f"Unknown error: {response.status_code}")
+            
             self.payload["page"] += 1
-            # one way to always be sure to not hit the rate limit
-            time.sleep(12)
+            time.sleep(12)  # Respect rate limits
 
     def getSchema(self):
         """
@@ -110,7 +134,7 @@ class NYTimesSource:
         source
         """
         if not hasattr(self, "_schema"):
-            for article in self.getArticles(1):
+            for article in self.getArticles():
                 flattened = flatten_dict(article)
                 self._schema = list(flattened.keys())
                 break
@@ -118,6 +142,19 @@ class NYTimesSource:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    def print_batch(batch):
+        for item in batch:
+            print(f" - {item['_id']} - {item['headline.main']}")
+            for key, value in item.items():
+                if "date" in key:
+                    print(f" - {key} - {value}")
+
     load_dotenv()
     #
     config = {
@@ -128,14 +165,9 @@ if __name__ == "__main__":
     }
     # pprint(config)
     source = NYTimesSource(config)
-    source.connect(inc_column="pub_date", max_inc_value="2025-02-18T14:00:00Z")
-    # This looks like an argparse dependency - but theNamespace class is just
-    # a simple way to create an object holding attributes.
-    # source.args = argparse.Namespace(**config)
-    for idx, batch in enumerate(source.getDataBatch(10)):
-        print(f"{idx} Batch of {len(batch)} items")
-        for item in batch:
-            print(f" - {item['_id']} - {item['headline.main']}")
-            for key, value in item.items():
-                if "date" in key:
-                    print(f" - {key} - {value}")
+    source.connect(inc_column="pub_date", max_inc_value="2025-01-14T23:00:00Z")
+
+    print("Fetching articles in batches...")
+    for idx, batch in enumerate(source.getDataBatch(batch_size=10)):
+        print(f"\nBatch {idx + 1} ({len(batch)} articles):")
+        print_batch(batch)
