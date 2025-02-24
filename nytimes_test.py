@@ -1,4 +1,4 @@
-from first_take import NYTimesSource
+from nytimes_api import NYTimesSource
 import argparse
 import pytest
 
