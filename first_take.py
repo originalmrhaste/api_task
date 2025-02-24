@@ -126,7 +126,7 @@ if __name__ == "__main__":
         # "page": 20,
         "sort": "newest",
     }
-    pprint(config)
+    # pprint(config)
     source = NYTimesSource(config)
     source.connect(inc_column="pub_date", max_inc_value="2025-02-18T14:00:00Z")
     # This looks like an argparse dependency - but theNamespace class is just
