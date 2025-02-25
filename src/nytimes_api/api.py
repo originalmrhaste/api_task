@@ -5,7 +5,7 @@ import requests
 import time
 
 from dotenv import load_dotenv
-from helpers import flatten_dict
+from nytimes_api.helpers import flatten_dict
 from pprint import pprint
 
 """

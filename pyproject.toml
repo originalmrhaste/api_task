@@ -1,0 +1,20 @@
+[project]
+name = "nytimes-api"
+version = "0.1.0"
+description = "NY Times Article Search API client"
+readme = "README.md"
+requires-python = ">=3.12.3"
+dependencies = [
+    "requests",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-mock",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

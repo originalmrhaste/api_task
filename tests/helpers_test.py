@@ -1,4 +1,4 @@
-from helpers import flatten_dict
+from nytimes_api.helpers import flatten_dict
 
 def test_empty_dict():
     test_dict = {}
@@ -69,3 +69,14 @@ def test_complex_dict():
         "key4.key6.0": "value5",
         "key4.key6.1": "value6",
     }
+
+def test_flatten_dict():
+    # Simple test case
+    nested_dict = {"a": {"b": 1, "c": 2}, "d": 3}
+    flattened = flatten_dict(nested_dict)
+    assert flattened == {"a.b": 1, "a.c": 2, "d": 3}
+    
+    # Test with nested arrays
+    nested_dict = {"a": [1, 2, 3], "b": {"c": [4, 5]}}
+    flattened = flatten_dict(nested_dict)
+    assert flattened == {"a.0": 1, "a.1": 2, "a.2": 3, "b.c.0": 4, "b.c.1": 5}
